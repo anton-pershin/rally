@@ -9,3 +9,6 @@ result_dir: ${user_settings.result_dir}
 hydra_root: ${user_settings.hydra_root}
 hydra_dir: ${user_settings.hydra_dir}
 
+system_prompt: "You are a helpful AI assistant. Be concise and clear in your responses."
+stop_words: ["quit", "exit", "stop"]
+
