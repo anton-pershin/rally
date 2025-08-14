@@ -110,6 +110,8 @@ async def _request_based_on_prompts(
     llm_server_url: str,
     system_prompt: str,
     user_prompts: list[str],
+    authorization: Optional[str] = None,
+    model: Optional[str] = None,
 ) -> str:
     responses = await asyncio.gather(
         *[
@@ -117,6 +119,8 @@ async def _request_based_on_prompts(
                 llm_server_url=llm_server_url,
                 system_prompt=system_prompt,
                 user_prompt=user_prompt,
+                authorization=authorization,
+                model=model,
             )
             for user_prompt in user_prompts
         ]
