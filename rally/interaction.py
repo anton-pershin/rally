@@ -65,7 +65,8 @@ async def _single_request_based_on_message_history_via_aiohttp(
     authorization: Optional[str] = None,
     model: Optional[str] = None,
 ) -> LlmMessage:
-    async with aiohttp.ClientSession() as session:
+    timeout = aiohttp.ClientTimeout()
+    async with aiohttp.ClientSession(timeout=timeout) as session:
         headers = {}
         if authorization is not None:
             headers["Authorization"] = authorization
