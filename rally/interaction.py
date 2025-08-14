@@ -3,6 +3,7 @@ import asyncio
 from typing import TypedDict, Optional
 import requests
 
+from rich.progress import Progress
 import aiohttp
 
 
@@ -112,19 +113,39 @@ async def _request_based_on_prompts(
     user_prompts: list[str],
     authorization: Optional[str] = None,
     model: Optional[str] = None,
+    progress_title: Optional[str] = None,
 ) -> str:
-    responses = await asyncio.gather(
-        *[
-            _single_request(
-                llm_server_url=llm_server_url,
-                system_prompt=system_prompt,
-                user_prompt=user_prompt,
-                authorization=authorization,
-                model=model,
+    if progress_title is not None:
+        with Progress() as progress:
+            task = progress.add_task(f"[cyan]{progress_title}", total=len(user_prompts))
+            
+            async def _request_with_progress(user_prompt: str):
+                response = await _single_request(
+                    llm_server_url=llm_server_url,
+                    system_prompt=system_prompt,
+                    user_prompt=user_prompt,
+                    authorization=authorization,
+                    model=model,
+                )
+                progress.update(task, advance=1)
+                return response
+
+            responses = await asyncio.gather(
+                *[_request_with_progress(user_prompt) for user_prompt in user_prompts]
             )
-            for user_prompt in user_prompts
-        ]
-    )
+    else:
+        responses = await asyncio.gather(
+            *[
+                _single_request(
+                    llm_server_url=llm_server_url,
+                    system_prompt=system_prompt,
+                    user_prompt=user_prompt,
+                    authorization=authorization,
+                    model=model,
+                )
+                for user_prompt in user_prompts
+            ]
+        )
     return responses
 
 
@@ -134,14 +155,16 @@ def request_based_on_prompts(
     user_prompts: list[str],
     authorization: Optional[str] = None,
     model: Optional[str] = None,
+    progress_title: Optional[str] = None,
 ) -> list[str]:
     responses = asyncio.run(
         _request_based_on_prompts(
             llm_server_url,
             system_prompt,
             user_prompts, 
-            authorization, 
+            authorization,
             model,
+            progress_title,
         )
     )
     return [r["content"] for r in responses]
