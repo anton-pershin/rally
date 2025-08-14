@@ -1,4 +1,4 @@
-def remove_thinking_qwen2_5(response: str) -> str:
+def remove_nothing(response: str) -> str:
     return response
 
 
@@ -14,7 +14,7 @@ def remove_thinking_qwq(response: str) -> str:
 
 
 THINKING_REMOVERS = {
-    "qwen2.5": remove_thinking_qwen2_5,
+    "qwen2.5": remove_nothing,
     "qwen3": remove_thinking_qwen3,
     "qwq": remove_thinking_qwq,
 }
