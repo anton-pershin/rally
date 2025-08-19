@@ -60,35 +60,35 @@ def _single_request_based_on_message_history(
 
 
 async def _single_request_based_on_message_history_via_aiohttp(
+    session: aiohttp.ClientSession,
     llm_server_url: str,
     message_history: list[LlmMessage],
     authorization: Optional[str] = None,
     model: Optional[str] = None,
 ) -> LlmMessage:
-    timeout = aiohttp.ClientTimeout()
-    async with aiohttp.ClientSession(timeout=timeout) as session:
-        headers = {}
-        if authorization is not None:
-            headers["Authorization"] = authorization
+    headers = {}
+    if authorization is not None:
+        headers["Authorization"] = authorization
 
-        data = {
-            "messages": message_history,
-        }
-        if model is not None:
-            data["model"] = model
+    data = {
+        "messages": message_history,
+    }
+    if model is not None:
+        data["model"] = model
 
-        async with session.post(
-            llm_server_url,
-            json=data,
-            headers=headers
-        ) as response:
-            response_json = await response.json()
-            assert len(response_json["choices"]) == 1, "Only single message in choices is supported"
+    async with session.post(
+        llm_server_url,
+        json=data,
+        headers=headers
+    ) as response:
+        response_json = await response.json()
+        assert len(response_json["choices"]) == 1, "Only single message in choices is supported"
 
-            return response_json["choices"][0]["message"]
+        return response_json["choices"][0]["message"]
 
 
 async def _single_request(
+    session: aiohttp.ClientSession,
     llm_server_url: str,
     system_prompt: str,
     user_prompt: str,
@@ -101,6 +101,7 @@ async def _single_request(
     )
 
     return await _single_request_based_on_message_history_via_aiohttp(
+        session,
         llm_server_url,
         message_history,
         authorization,
@@ -110,48 +111,55 @@ async def _single_request(
 
 async def _request_based_on_prompts(
     llm_server_url: str,
+    max_concurrent_requests: int,
     system_prompt: str,
     user_prompts: list[str],
     authorization: Optional[str] = None,
     model: Optional[str] = None,
     progress_title: Optional[str] = None,
 ) -> str:
-    if progress_title is not None:
-        with Progress() as progress:
-            task = progress.add_task(f"[cyan]{progress_title}", total=len(user_prompts))
-            
-            async def _request_with_progress(user_prompt: str):
-                response = await _single_request(
-                    llm_server_url=llm_server_url,
-                    system_prompt=system_prompt,
-                    user_prompt=user_prompt,
-                    authorization=authorization,
-                    model=model,
-                )
-                progress.update(task, advance=1)
-                return response
+    timeout = aiohttp.ClientTimeout()
+    connector = aiohttp.TCPConnector(limit=max_concurrent_requests)
+    async with aiohttp.ClientSession(timeout=timeout, connector=connector) as session:
+        if progress_title is not None:
+            with Progress() as progress:
+                task = progress.add_task(f"[cyan]{progress_title}", total=len(user_prompts))
+                
+                async def _request_with_progress(user_prompt: str):
+                    response = await _single_request(
+                        session=session,
+                        llm_server_url=llm_server_url,
+                        system_prompt=system_prompt,
+                        user_prompt=user_prompt,
+                        authorization=authorization,
+                        model=model,
+                    )
+                    progress.update(task, advance=1)
+                    return response
 
-            responses = await asyncio.gather(
-                *[_request_with_progress(user_prompt) for user_prompt in user_prompts]
-            )
-    else:
-        responses = await asyncio.gather(
-            *[
-                _single_request(
-                    llm_server_url=llm_server_url,
-                    system_prompt=system_prompt,
-                    user_prompt=user_prompt,
-                    authorization=authorization,
-                    model=model,
+                responses = await asyncio.gather(
+                    *[_request_with_progress(user_prompt) for user_prompt in user_prompts]
                 )
-                for user_prompt in user_prompts
-            ]
-        )
+        else:
+            responses = await asyncio.gather(
+                *[
+                    _single_request(
+                        session=session,
+                        llm_server_url=llm_server_url,
+                        system_prompt=system_prompt,
+                        user_prompt=user_prompt,
+                        authorization=authorization,
+                        model=model,
+                    )
+                    for user_prompt in user_prompts
+                ]
+            )
     return responses
 
 
 def request_based_on_prompts(
     llm_server_url: str,
+    max_concurrent_requests: int,
     system_prompt: str,
     user_prompts: list[str],
     authorization: Optional[str] = None,
@@ -161,6 +169,7 @@ def request_based_on_prompts(
     responses = asyncio.run(
         _request_based_on_prompts(
             llm_server_url,
+            max_concurrent_requests,
             system_prompt,
             user_prompts, 
             authorization,
