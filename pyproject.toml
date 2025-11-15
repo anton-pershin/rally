@@ -1,0 +1,36 @@
+[project]
+name = "rally"
+description = "A library for interaction with and performance tests of local and external LLMs"
+dynamic = ["version"]
+authors = [
+  {name = "Anton Pershin", email = "tony.pershin@gmail.com"},
+]
+readme = "README.md"
+
+[project]
+requires-python = ">= 3.12"
+dependencies = [
+    "hydra-core >= 1.3",
+    "rich >= 14.0.0",
+    "requests",
+    "aiohttp",
+]
+
+[build-system]
+requires = ["hatchling >= 1.26"]
+build-backend = "hatchling.build"
+
+[tool.hatch.version]
+path = "VERSION"
+
+[tool.pylint]
+max-line-length = 88
+
+[tool.pylint.'MESSAGES CONTROL']
+disable = [
+    "missing-docstring",      # Disable docstring requirements
+    "too-few-public-methods", # Allow classes with few methods
+]
+
+[tool.mypy]
+disable_error_code = ["import-untyped"]
