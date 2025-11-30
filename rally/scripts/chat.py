@@ -33,6 +33,7 @@ def chat(cfg: DictConfig) -> None:
                 message_history=messages,
                 authorization=llm.authorization,
                 model=llm.model,
+                max_output_tokens=llm.max_output_tokens,
             )
             
             messages.append(assistant_message)
@@ -50,4 +51,3 @@ if __name__ == "__main__":
         config_name=CONFIG_NAME,
         version_base="1.3",
     )(chat)()
-

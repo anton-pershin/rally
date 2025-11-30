@@ -33,6 +33,7 @@ def _single_request_based_on_message_history(
     message_history: list[LlmMessage],
     authorization: Optional[str] = None,
     model: Optional[str] = None,
+    max_output_tokens: Optional[int] = None,
 ) -> LlmMessage:
     
     headers = {
@@ -46,6 +47,9 @@ def _single_request_based_on_message_history(
     }
     if model is not None:
         data["model"] = model
+    if max_output_tokens is not None:
+        data["max_completion_tokens"] = max_output_tokens
+        data["max_tokens"] = max_output_tokens
 
     r = requests.post(
         llm_server_url,
@@ -65,6 +69,7 @@ async def _single_request_based_on_message_history_via_aiohttp(
     message_history: list[LlmMessage],
     authorization: Optional[str] = None,
     model: Optional[str] = None,
+    max_output_tokens: Optional[int] = None,
 ) -> LlmMessage:
     headers = {}
     if authorization is not None:
@@ -75,6 +80,8 @@ async def _single_request_based_on_message_history_via_aiohttp(
     }
     if model is not None:
         data["model"] = model
+    if max_output_tokens is not None:
+        data["max_completion_tokens"] = max_output_tokens
 
     async with session.post(
         llm_server_url,
@@ -94,6 +101,7 @@ async def _single_request(
     user_prompt: str,
     authorization: Optional[str] = None,
     model: Optional[str] = None,
+    max_output_tokens: Optional[int] = None,
 ) -> LlmMessage:
     message_history = make_up_message_history(
         system_prompt=system_prompt,
@@ -106,6 +114,7 @@ async def _single_request(
         message_history,
         authorization,
         model,
+        max_output_tokens,
     )
 
 
@@ -117,6 +126,7 @@ async def _request_based_on_prompts(
     authorization: Optional[str] = None,
     model: Optional[str] = None,
     progress_title: Optional[str] = None,
+    max_output_tokens: Optional[int] = None,
 ) -> str:
     timeout = aiohttp.ClientTimeout()
     connector = aiohttp.TCPConnector(limit=max_concurrent_requests)
@@ -133,6 +143,7 @@ async def _request_based_on_prompts(
                         user_prompt=user_prompt,
                         authorization=authorization,
                         model=model,
+                        max_output_tokens=max_output_tokens,
                     )
                     progress.update(task, advance=1)
                     return response
@@ -150,6 +161,7 @@ async def _request_based_on_prompts(
                         user_prompt=user_prompt,
                         authorization=authorization,
                         model=model,
+                        max_output_tokens=max_output_tokens,
                     )
                     for user_prompt in user_prompts
                 ]
@@ -165,6 +177,7 @@ def request_based_on_prompts(
     authorization: Optional[str] = None,
     model: Optional[str] = None,
     progress_title: Optional[str] = None,
+    max_output_tokens: Optional[int] = None,
 ) -> list[str]:
     responses = asyncio.run(
         _request_based_on_prompts(
@@ -175,6 +188,7 @@ def request_based_on_prompts(
             authorization,
             model,
             progress_title,
+            max_output_tokens,
         )
     )
     return [r["content"] for r in responses]
@@ -185,13 +199,14 @@ def request_based_on_message_history(
     message_history: list[LlmMessage],
     authorization: Optional[str] = None,
     model: Optional[str] = None,
+    max_output_tokens: Optional[int] = None,
 ) -> str:
     message = _single_request_based_on_message_history(
         llm_server_url=llm_server_url,
         message_history=message_history,
         authorization=authorization,
         model=model,
+        max_output_tokens=max_output_tokens,
     )
 
     return message
-

@@ -9,12 +9,14 @@ class Llm:
         model_family: Optional[str] = None,
         authorization: Optional[str] = None,
         model: Optional[str] = None,
+        max_output_tokens: Optional[int] = None,
     ) -> None:
         self.url: str = url
         self.max_concurrent_requests: int = max_concurrent_requests
         self.model_family: Optional[str] = model_family
         self.authorization: Optional[str] = authorization
         self.model: Optional[str] = model
+        self.max_output_tokens: Optional[int] = max_output_tokens
 
 
 class LocalLlm(Llm):
@@ -22,12 +24,14 @@ class LocalLlm(Llm):
         self,
         url: str,
         max_concurrent_requests: int,
-        model_family: str
+        model_family: str,
+        max_output_tokens: Optional[int] = None,
     ) -> None:
         super().__init__(
             url=url,
             max_concurrent_requests=max_concurrent_requests,
             model_family=model_family,
+            max_output_tokens=max_output_tokens,
         )
 
 
@@ -37,12 +41,13 @@ class OpenAiApiLlmWithAuthorization(Llm):
         url: str,
         max_concurrent_requests: int,
         api_key: str,
-        model: str
+        model: str,
+        max_output_tokens: Optional[int] = None,
     ) -> None:
         super().__init__(
             url=url,
             max_concurrent_requests=max_concurrent_requests,
             authorization=f"Bearer {api_key}",
             model=model,
+            max_output_tokens=max_output_tokens,
         )
-
