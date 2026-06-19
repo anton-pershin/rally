@@ -18,4 +18,3 @@ THINKING_REMOVERS = {
     "qwen3": remove_thinking_qwen3,
     "qwq": remove_thinking_qwq,
 }
-

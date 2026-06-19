@@ -17,4 +17,3 @@ def to_boolean(llm_output: str) -> bool:
         return False
 
     raise ValueError(f"LLM output is inconsistent with the boolean type: '{s}'")
-

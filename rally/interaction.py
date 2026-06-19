@@ -1,10 +1,10 @@
-import json
 import asyncio
-from typing import TypedDict, Optional
-import requests
+import json
+from typing import Optional, TypedDict
 
-from rich.progress import Progress
 import aiohttp
+import requests
+from rich.progress import Progress
 
 
 class LlmMessage(TypedDict):
@@ -35,7 +35,6 @@ def _single_request_based_on_message_history(
     model: Optional[str] = None,
     max_output_tokens: Optional[int] = None,
 ) -> LlmMessage:
-    
     headers = {
         "Content-Type": "application/json",
     }
@@ -58,7 +57,9 @@ def _single_request_based_on_message_history(
     )
 
     response_json = json.loads(r.text)
-    assert len(response_json["choices"]) == 1, "Only single message in choices is supported"
+    assert (
+        len(response_json["choices"]) == 1
+    ), "Only single message in choices is supported"
 
     return response_json["choices"][0]["message"]
 
@@ -83,13 +84,11 @@ async def _single_request_based_on_message_history_via_aiohttp(
     if max_output_tokens is not None:
         data["max_completion_tokens"] = max_output_tokens
 
-    async with session.post(
-        llm_server_url,
-        json=data,
-        headers=headers
-    ) as response:
+    async with session.post(llm_server_url, json=data, headers=headers) as response:
         response_json = await response.json()
-        assert len(response_json["choices"]) == 1, "Only single message in choices is supported"
+        assert (
+            len(response_json["choices"]) == 1
+        ), "Only single message in choices is supported"
 
         return response_json["choices"][0]["message"]
 
@@ -105,7 +104,7 @@ async def _single_request(
 ) -> LlmMessage:
     message_history = make_up_message_history(
         system_prompt=system_prompt,
-        user_prompt=user_prompt,  
+        user_prompt=user_prompt,
     )
 
     return await _single_request_based_on_message_history_via_aiohttp(
@@ -133,8 +132,10 @@ async def _request_based_on_prompts(
     async with aiohttp.ClientSession(timeout=timeout, connector=connector) as session:
         if progress_title is not None:
             with Progress() as progress:
-                task = progress.add_task(f"[cyan]{progress_title}", total=len(user_prompts))
-                
+                task = progress.add_task(
+                    f"[cyan]{progress_title}", total=len(user_prompts)
+                )
+
                 async def _request_with_progress(user_prompt: str):
                     response = await _single_request(
                         session=session,
@@ -149,7 +150,10 @@ async def _request_based_on_prompts(
                     return response
 
                 responses = await asyncio.gather(
-                    *[_request_with_progress(user_prompt) for user_prompt in user_prompts]
+                    *[
+                        _request_with_progress(user_prompt)
+                        for user_prompt in user_prompts
+                    ]
                 )
         else:
             responses = await asyncio.gather(
@@ -184,7 +188,7 @@ def request_based_on_prompts(
             llm_server_url,
             max_concurrent_requests,
             system_prompt,
-            user_prompts, 
+            user_prompts,
             authorization,
             model,
             progress_title,
