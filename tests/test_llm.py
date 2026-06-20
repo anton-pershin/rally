@@ -78,3 +78,52 @@ class TestOpenAiApiLlmWithAuthorization:
         )
 
         assert llm.max_output_tokens == 2048
+
+
+class TestEnableThinking:
+    def test_enable_thinking_default_none(self) -> None:
+        llm = Llm(
+            url="http://localhost:8000",
+            max_concurrent_requests=10,
+        )
+
+        assert llm.enable_thinking is None
+
+    def test_enable_thinking_set_true(self) -> None:
+        llm = Llm(
+            url="http://localhost:8000",
+            max_concurrent_requests=10,
+            enable_thinking=True,
+        )
+
+        assert llm.enable_thinking is True
+
+    def test_enable_thinking_set_false(self) -> None:
+        llm = Llm(
+            url="http://localhost:8000",
+            max_concurrent_requests=10,
+            enable_thinking=False,
+        )
+
+        assert llm.enable_thinking is False
+
+    def test_local_llm_enable_thinking(self) -> None:
+        llm = LocalLlm(
+            url="http://localhost:8080",
+            max_concurrent_requests=4,
+            model_family="qwen3",
+            enable_thinking=False,
+        )
+
+        assert llm.enable_thinking is False
+
+    def test_openai_api_llm_enable_thinking(self) -> None:
+        llm = OpenAiApiLlmWithAuthorization(
+            url="https://api.openai.com/v1/chat/completions",
+            max_concurrent_requests=8,
+            api_key="sk-test-key",
+            model="gpt-4",
+            enable_thinking=True,
+        )
+
+        assert llm.enable_thinking is True

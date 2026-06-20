@@ -30,6 +30,7 @@ def chat(cfg: DictConfig) -> None:
                 authorization=llm.authorization,
                 model=llm.model,
                 max_output_tokens=llm.max_output_tokens,
+                enable_thinking=llm.enable_thinking,
             )
 
             messages.append(assistant_message)

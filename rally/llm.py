@@ -10,6 +10,7 @@ class Llm:
         authorization: Optional[str] = None,
         model: Optional[str] = None,
         max_output_tokens: Optional[int] = None,
+        enable_thinking: Optional[bool] = None,
     ) -> None:
         self.url: str = url
         self.max_concurrent_requests: int = max_concurrent_requests
@@ -17,6 +18,7 @@ class Llm:
         self.authorization: Optional[str] = authorization
         self.model: Optional[str] = model
         self.max_output_tokens: Optional[int] = max_output_tokens
+        self.enable_thinking: Optional[bool] = enable_thinking
 
 
 class LocalLlm(Llm):
@@ -26,12 +28,14 @@ class LocalLlm(Llm):
         max_concurrent_requests: int,
         model_family: str,
         max_output_tokens: Optional[int] = None,
+        enable_thinking: Optional[bool] = None,
     ) -> None:
         super().__init__(
             url=url,
             max_concurrent_requests=max_concurrent_requests,
             model_family=model_family,
             max_output_tokens=max_output_tokens,
+            enable_thinking=enable_thinking,
         )
 
 
@@ -43,6 +47,7 @@ class OpenAiApiLlmWithAuthorization(Llm):
         api_key: str,
         model: str,
         max_output_tokens: Optional[int] = None,
+        enable_thinking: Optional[bool] = None,
     ) -> None:
         super().__init__(
             url=url,
@@ -50,4 +55,5 @@ class OpenAiApiLlmWithAuthorization(Llm):
             authorization=f"Bearer {api_key}",
             model=model,
             max_output_tokens=max_output_tokens,
+            enable_thinking=enable_thinking,
         )

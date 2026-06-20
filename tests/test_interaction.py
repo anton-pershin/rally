@@ -204,3 +204,186 @@ class TestRequestBasedOnMessageHistory:
             )
 
             assert result == {"role": "assistant", "content": "Hello back!"}
+
+
+class TestEnableThinkingInRequests:
+    def test_sync_request_no_chat_template_kwargs_when_none(
+        self, sample_message_history: list[LlmMessage], mock_llm_response: MagicMock
+    ) -> None:
+        response_data = mock_llm_response("Response")
+
+        with patch("rally.interaction.requests.post") as mock_post:
+            mock_response = MagicMock()
+            mock_response.text = json.dumps(response_data)
+            mock_post.return_value = mock_response
+
+            _single_request_based_on_message_history(
+                llm_server_url="http://localhost:8000/v1/chat",
+                message_history=sample_message_history,
+                enable_thinking=None,
+            )
+
+            call_kwargs = mock_post.call_args
+            sent_data = json.loads(call_kwargs[1]["data"])
+            assert "chat_template_kwargs" not in sent_data
+
+    def test_sync_request_enable_thinking_true(
+        self, sample_message_history: list[LlmMessage], mock_llm_response: MagicMock
+    ) -> None:
+        response_data = mock_llm_response("Response")
+
+        with patch("rally.interaction.requests.post") as mock_post:
+            mock_response = MagicMock()
+            mock_response.text = json.dumps(response_data)
+            mock_post.return_value = mock_response
+
+            _single_request_based_on_message_history(
+                llm_server_url="http://localhost:8000/v1/chat",
+                message_history=sample_message_history,
+                enable_thinking=True,
+            )
+
+            call_kwargs = mock_post.call_args
+            sent_data = json.loads(call_kwargs[1]["data"])
+            assert sent_data["chat_template_kwargs"] == {"enable_thinking": True}
+
+    def test_sync_request_enable_thinking_false(
+        self, sample_message_history: list[LlmMessage], mock_llm_response: MagicMock
+    ) -> None:
+        response_data = mock_llm_response("Response")
+
+        with patch("rally.interaction.requests.post") as mock_post:
+            mock_response = MagicMock()
+            mock_response.text = json.dumps(response_data)
+            mock_post.return_value = mock_response
+
+            _single_request_based_on_message_history(
+                llm_server_url="http://localhost:8000/v1/chat",
+                message_history=sample_message_history,
+                enable_thinking=False,
+            )
+
+            call_kwargs = mock_post.call_args
+            sent_data = json.loads(call_kwargs[1]["data"])
+            assert sent_data["chat_template_kwargs"] == {"enable_thinking": False}
+
+    @pytest.mark.asyncio
+    async def test_async_request_no_chat_template_kwargs_when_none(
+        self, sample_message_history: list[LlmMessage], mock_llm_response: MagicMock
+    ) -> None:
+        response_data = mock_llm_response("Async response")
+
+        mock_session = AsyncMock()
+        mock_response = AsyncMock()
+        mock_response.json = AsyncMock(return_value=response_data)
+        mock_session.post = MagicMock(
+            return_value=AsyncMock(__aenter__=AsyncMock(return_value=mock_response))
+        )
+
+        await _single_request_based_on_message_history_via_aiohttp(
+            session=mock_session,
+            llm_server_url="http://localhost:8000/v1/chat",
+            message_history=sample_message_history,
+            enable_thinking=None,
+        )
+
+        call_kwargs = mock_session.post.call_args
+        sent_data = call_kwargs[1]["json"]
+        assert "chat_template_kwargs" not in sent_data
+
+    @pytest.mark.asyncio
+    async def test_async_request_enable_thinking_true(
+        self, sample_message_history: list[LlmMessage], mock_llm_response: MagicMock
+    ) -> None:
+        response_data = mock_llm_response("Async response")
+
+        mock_session = AsyncMock()
+        mock_response = AsyncMock()
+        mock_response.json = AsyncMock(return_value=response_data)
+        mock_session.post = MagicMock(
+            return_value=AsyncMock(__aenter__=AsyncMock(return_value=mock_response))
+        )
+
+        await _single_request_based_on_message_history_via_aiohttp(
+            session=mock_session,
+            llm_server_url="http://localhost:8000/v1/chat",
+            message_history=sample_message_history,
+            enable_thinking=True,
+        )
+
+        call_kwargs = mock_session.post.call_args
+        sent_data = call_kwargs[1]["json"]
+        assert sent_data["chat_template_kwargs"] == {"enable_thinking": True}
+
+    @pytest.mark.asyncio
+    async def test_async_request_enable_thinking_false(
+        self, sample_message_history: list[LlmMessage], mock_llm_response: MagicMock
+    ) -> None:
+        response_data = mock_llm_response("Async response")
+
+        mock_session = AsyncMock()
+        mock_response = AsyncMock()
+        mock_response.json = AsyncMock(return_value=response_data)
+        mock_session.post = MagicMock(
+            return_value=AsyncMock(__aenter__=AsyncMock(return_value=mock_response))
+        )
+
+        await _single_request_based_on_message_history_via_aiohttp(
+            session=mock_session,
+            llm_server_url="http://localhost:8000/v1/chat",
+            message_history=sample_message_history,
+            enable_thinking=False,
+        )
+
+        call_kwargs = mock_session.post.call_args
+        sent_data = call_kwargs[1]["json"]
+        assert sent_data["chat_template_kwargs"] == {"enable_thinking": False}
+
+    def test_request_based_on_message_history_passes_enable_thinking(
+        self, sample_message_history: list[LlmMessage], mock_llm_response: MagicMock
+    ) -> None:
+        response_data = mock_llm_response("Response")
+
+        with patch("rally.interaction.requests.post") as mock_post:
+            mock_response = MagicMock()
+            mock_response.text = json.dumps(response_data)
+            mock_post.return_value = mock_response
+
+            request_based_on_message_history(
+                llm_server_url="http://localhost:8000/v1/chat",
+                message_history=sample_message_history,
+                enable_thinking=False,
+            )
+
+            call_kwargs = mock_post.call_args
+            sent_data = json.loads(call_kwargs[1]["data"])
+            assert sent_data["chat_template_kwargs"] == {"enable_thinking": False}
+
+    def test_request_based_on_prompts_passes_enable_thinking(
+        self, mock_llm_response: MagicMock
+    ) -> None:
+        response = mock_llm_response("Answer")
+
+        with patch("rally.interaction.aiohttp.ClientSession") as mock_session_class:
+            mock_session = AsyncMock()
+            mock_session_class.return_value.__aenter__ = AsyncMock(
+                return_value=mock_session
+            )
+
+            mock_resp = AsyncMock()
+            mock_resp.json = AsyncMock(return_value=response)
+            mock_session.post = MagicMock(
+                return_value=AsyncMock(__aenter__=AsyncMock(return_value=mock_resp))
+            )
+
+            request_based_on_prompts(
+                llm_server_url="http://localhost:8000/v1/chat",
+                max_concurrent_requests=2,
+                system_prompt="You are helpful.",
+                user_prompts=["Q1"],
+                enable_thinking=True,
+            )
+
+            call_kwargs = mock_session.post.call_args
+            sent_data = call_kwargs[1]["json"]
+            assert sent_data["chat_template_kwargs"] == {"enable_thinking": True}
