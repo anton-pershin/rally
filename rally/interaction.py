@@ -1,10 +1,10 @@
 import asyncio
 import json
+import logging
 from typing import Optional, TypedDict
 
 import aiohttp
 import requests
-from rich.progress import Progress
 
 
 class LlmMessage(TypedDict):
@@ -138,49 +138,39 @@ async def _request_based_on_prompts(
 ) -> str:
     timeout = aiohttp.ClientTimeout()
     connector = aiohttp.TCPConnector(limit=max_concurrent_requests)
-    async with aiohttp.ClientSession(timeout=timeout, connector=connector) as session:
+
+    if progress_title is not None:
+        logging.info("Starting %s (%d requests)", progress_title, len(user_prompts))
+
+    completed = 0
+
+    async def _request(user_prompt: str):
+        nonlocal completed
+        response = await _single_request(
+            session=session,
+            llm_server_url=llm_server_url,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            authorization=authorization,
+            model=model,
+            max_output_tokens=max_output_tokens,
+            enable_thinking=enable_thinking,
+        )
         if progress_title is not None:
-            with Progress() as progress:
-                task = progress.add_task(
-                    f"[cyan]{progress_title}", total=len(user_prompts)
-                )
-
-                async def _request_with_progress(user_prompt: str):
-                    response = await _single_request(
-                        session=session,
-                        llm_server_url=llm_server_url,
-                        system_prompt=system_prompt,
-                        user_prompt=user_prompt,
-                        authorization=authorization,
-                        model=model,
-                        max_output_tokens=max_output_tokens,
-                        enable_thinking=enable_thinking,
-                    )
-                    progress.update(task, advance=1)
-                    return response
-
-                responses = await asyncio.gather(
-                    *[
-                        _request_with_progress(user_prompt)
-                        for user_prompt in user_prompts
-                    ]
-                )
-        else:
-            responses = await asyncio.gather(
-                *[
-                    _single_request(
-                        session=session,
-                        llm_server_url=llm_server_url,
-                        system_prompt=system_prompt,
-                        user_prompt=user_prompt,
-                        authorization=authorization,
-                        model=model,
-                        max_output_tokens=max_output_tokens,
-                        enable_thinking=enable_thinking,
-                    )
-                    for user_prompt in user_prompts
-                ]
+            completed += 1
+            logging.debug(
+                "%s: %d/%d done", progress_title, completed, len(user_prompts)
             )
+        return response
+
+    async with aiohttp.ClientSession(timeout=timeout, connector=connector) as session:
+        responses = await asyncio.gather(
+            *[_request(user_prompt) for user_prompt in user_prompts]
+        )
+
+    if progress_title is not None:
+        logging.info("Completed %s", progress_title)
+
     return responses
 
 
