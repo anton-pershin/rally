@@ -60,6 +60,9 @@ def _single_request_based_on_message_history(
     )
 
     response_json = json.loads(r.text)
+    if ("choices" not in response_json) or (len(response_json["choices"]) != 1):
+        logging.error("Invalid response %s", str(response_json))
+
     assert (
         len(response_json["choices"]) == 1
     ), "Only single message in choices is supported"
@@ -92,6 +95,9 @@ async def _single_request_based_on_message_history_via_aiohttp(
 
     async with session.post(llm_server_url, json=data, headers=headers) as response:
         response_json = await response.json()
+        if ("choices" not in response_json) or (len(response_json["choices"]) != 1):
+            logging.error("Invalid response %s", str(response_json))
+
         assert (
             len(response_json["choices"]) == 1
         ), "Only single message in choices is supported"
