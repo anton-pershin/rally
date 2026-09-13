@@ -35,7 +35,7 @@ def _single_request_based_on_message_history(
     model: Optional[str] = None,
     max_output_tokens: Optional[int] = None,
     enable_thinking: Optional[bool] = None,
-) -> LlmMessage:
+) -> LlmMessage | None:
     headers = {
         "Content-Type": "application/json",
     }
@@ -62,6 +62,7 @@ def _single_request_based_on_message_history(
     response_json = json.loads(r.text)
     if ("choices" not in response_json) or (len(response_json["choices"]) != 1):
         logging.error("Invalid response %s", str(response_json))
+        return None
 
     assert (
         len(response_json["choices"]) == 1
@@ -78,7 +79,7 @@ async def _single_request_based_on_message_history_via_aiohttp(
     model: Optional[str] = None,
     max_output_tokens: Optional[int] = None,
     enable_thinking: Optional[bool] = None,
-) -> LlmMessage:
+) -> LlmMessage | None:
     headers = {}
     if authorization is not None:
         headers["Authorization"] = authorization
@@ -90,17 +91,24 @@ async def _single_request_based_on_message_history_via_aiohttp(
         data["model"] = model
     if max_output_tokens is not None:
         data["max_completion_tokens"] = max_output_tokens
-    if enable_thinking is not None:
+
+    if enable_thinking is None:
+        data["chat_template_kwargs"] = {"enable_thinking": False}
+    else:
         data["chat_template_kwargs"] = {"enable_thinking": enable_thinking}
 
     async with session.post(llm_server_url, json=data, headers=headers) as response:
         response_json = await response.json()
         if ("choices" not in response_json) or (len(response_json["choices"]) != 1):
             logging.error("Invalid response %s", str(response_json))
+            return None
 
         assert (
             len(response_json["choices"]) == 1
         ), "Only single message in choices is supported"
+
+        if "reasoning_content" in response_json["choices"][0]["message"]:
+            logging.warning("Reasoning content found in response")
 
         return response_json["choices"][0]["message"]
 
@@ -114,7 +122,7 @@ async def _single_request(
     model: Optional[str] = None,
     max_output_tokens: Optional[int] = None,
     enable_thinking: Optional[bool] = None,
-) -> LlmMessage:
+) -> LlmMessage | None:
     message_history = make_up_message_history(
         system_prompt=system_prompt,
         user_prompt=user_prompt,
@@ -141,7 +149,7 @@ async def _request_based_on_prompts(
     progress_title: Optional[str] = None,
     max_output_tokens: Optional[int] = None,
     enable_thinking: Optional[bool] = None,
-) -> str:
+) -> LlmMessage | None:
     timeout = aiohttp.ClientTimeout()
     connector = aiohttp.TCPConnector(limit=max_concurrent_requests)
 
@@ -190,7 +198,7 @@ def request_based_on_prompts(
     progress_title: Optional[str] = None,
     max_output_tokens: Optional[int] = None,
     enable_thinking: Optional[bool] = None,
-) -> list[str]:
+) -> list[str | None]:
     responses = asyncio.run(
         _request_based_on_prompts(
             llm_server_url,
@@ -204,7 +212,7 @@ def request_based_on_prompts(
             enable_thinking,
         )
     )
-    return [r["content"] for r in responses]
+    return [r["content"] if r is not None else None for r in responses]
 
 
 def request_based_on_message_history(
