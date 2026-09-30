@@ -1,5 +1,5 @@
-project_path: /Users/tony/reps/github/anton-pershin/rally
-hydra_root: ${user_settings.project_path}/hydra
+hydra_root: ${oc.env:RALLY_HYDRA_PATH, /tmp/rally_hydra}
 hydra_dir: ${user_settings.hydra_root}/${now:%Y-%m-%d}/${now:%H-%M-%S}
 result_dir: ${user_settings.hydra_dir}
 
+caila_api_key: ${oc.env:CAILA_API_KEY, null}
