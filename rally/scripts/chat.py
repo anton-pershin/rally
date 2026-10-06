@@ -3,7 +3,7 @@ from omegaconf import DictConfig
 from rich.markdown import Markdown
 
 import hydra
-from rally.interaction import LlmMessage, request_based_on_message_history
+from rally.interaction import LlmMessage
 from rally.utils.common import get_config_path
 from rally.utils.console import console, prompt_user
 
@@ -24,14 +24,9 @@ def chat(cfg: DictConfig) -> None:
         try:
             messages.append({"role": "user", "content": user_input})
 
-            assistant_message = request_based_on_message_history(
-                llm_server_url=llm.url,
-                message_history=messages,
-                authorization=llm.authorization,
-                model=llm.model,
-                max_output_tokens=llm.max_output_tokens,
-                enable_thinking=llm.enable_thinking,
-            )
+            assistant_message = llm.request(messages)
+            if assistant_message is None:
+                raise ValueError("Invalid response from the LLM.")
 
             messages.append(assistant_message)
             markdown = Markdown(assistant_message["content"])
