@@ -112,25 +112,38 @@ Test infrastructure: a stub streaming server, added as the helper `tests/streami
 
 #### 3.1 Implementation repos
 
-[List all the repos expected to be involved in any implementation]
+`rally` is the management repo (this spec lives in `.internal/specs/`) and the only implementation repo. It is a library: beyond its own suite there is nothing to run for this spec, and no consumer repo is touched.
 
 #### 3.2 High-level design
 
-[Mermaid diagram (typically, flowchart, but it is ultimately up to a planner) describing the high-level design. Take the high-level design from the constitution/validation spec and draw how your proposal fits into it.]
+```mermaid
+flowchart LR
+    A["slam-eval collector (its own later spec)"] -->|stream(message_history)| B["rally: Llm.stream()"]
+    B -->|"build_headers() + build_payload() + stream, stream_options"| C[OpenAI-compatible server]
+    C -->|"data: chunk lines"| B
+    B -->|LlmStreamEvent| A
+    B -.->|"LlmAuthorizationError, LlmStreamRejectedError, LlmTransportError, LlmTimeoutError"| A
+    D["rally: request / arequest / request_batch / arequest_batch"] -->|unchanged| C
+    E["tests/streaming_stub.py"] -.->|scripted SSE| B
+```
 
 #### 3.3 Todo list
 
-[Write a todo list with all the steps necessary to create an implementation which will allow the tests to be passed. Below is the template where the first two steps are mandatory]
-
-1. [ ] Write the tests
+1. [ ] Write the tests, and the stub streaming server they need
 2. [ ] Run all the tests and ensure that they fail
-3. [ ] ...
+3. [ ] `rally/llm.py`: `LlmStreamEvent`, `LlmUsage`, and `stream()` on `Llm` — headers and body from the builders plus the two streaming keys, yielding events incrementally (T1–T12)
+4. [ ] `rally/llm.py`: the error family, applied in `stream()` — authorization, rejection carrying the status, transport, timeout (T13–T19)
+5. [ ] `rally/llm.py`: the `timeout` field on `Llm`, `LocalLlm` and `OpenAiApiLlmWithAuthorization`, plus `timeout:` in the llm configs (T18)
+6. [ ] Confirm early stop releases the response and the non-streaming operations are untouched (T20, T21)
+7. [ ] Run the suite and the four linters, comparing `pylint` and `isort` against a clean `main` clone (T22)
+8. [ ] Commit
 
 #### 3.4 Modification summary
 
-[Fill the table below specifying which files are going to be modified and which are going to be created]
-
 | File | Action |
 |------|--------|
-| ... | Modified: add X, modify Y, etc. |
-| ... | New |
+| `rally/llm.py` | Modified: `stream()` on `Llm`; `LlmStreamEvent` and `LlmUsage`; the error family (`LlmError`, `LlmAuthorizationError`, `LlmStreamRejectedError`, `LlmTransportError`, `LlmTimeoutError`); the `timeout` field on `Llm`, `LocalLlm` and `OpenAiApiLlmWithAuthorization` |
+| `config/llm/*.yaml` | Modified: `timeout:` — null by default, so the field is visible wherever an `Llm` is configured |
+| `tests/test_llm.py` | Modified: T1–T21 |
+| `tests/streaming_stub.py` | New: the scripted streaming stub server |
+| `.internal/specs/04-streaming-kiss-spec.md` | New |
