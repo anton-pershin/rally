@@ -28,3 +28,9 @@ def sample_message_history() -> list[LlmMessage]:
         {"role": "system", "content": "You are a helpful assistant."},
         {"role": "user", "content": "Hello"},
     ]
+
+
+@pytest.fixture
+def anyio_backend() -> str:
+    """Run the anyio-marked tests on asyncio only."""
+    return "asyncio"

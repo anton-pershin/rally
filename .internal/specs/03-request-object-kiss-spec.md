@@ -24,7 +24,7 @@ rally constructs the same chat-completion HTTP request in several places: the sy
 - **NFR1 — Wire compatibility.** For any `Llm`, headers and body produced by every operation are identical to those produced today for the same configuration, with two intended exceptions, both confined to the asynchronous operations: `Llm.enable_thinking` being `None` no longer sends `chat_template_kwargs` (FR4), and `Llm.max_output_tokens` being set now also sends `max_tokens` alongside `max_completion_tokens` (FR2). The transport split is preserved: synchronous operations keep using `requests`, asynchronous ones `aiohttp` — only the request description is unified. Header unification is wire-neutral: the asynchronous operations send no `Content-Type` themselves today because aiohttp's JSON payload supplies it, and an explicitly supplied header takes precedence over the payload's.
 - **NFR2 — No new runtime dependency.** Only the standard library, `requests` and `aiohttp` are used.
 - **NFR3 — The full test suite runs in the project virtual environment without installing additional packages**, in particular the asynchronous tests, which currently do not execute at all.
-- **NFR4 — Linters pass** (black, isort, pylint, mypy) and public functions stay fully type-annotated.
+- **NFR4 — Linters do not regress** (black, isort, pylint, mypy) and public functions stay fully type-annotated. `black --check`, `isort --check` and `mypy` are clean over `rally/`; `isort` is clean only once `[tool.isort] known_third_party = ["hydra"]` pins `hydra` as the third-party dependency it actually is — without that pin the verdict flips depending on whether an ignored `/hydra/` job-output directory happens to exist in the checkout. `pylint rally/` reports no message that is not already present on `main` — it is not clean on `main` either (20 messages), so the criterion is "no new message", not "no message".
 - **NFR5 — The signature change is breaking by design.** Every call site inside `rally` is updated in this spec, so `rally`'s own suite passes. Call sites in other repos that use the removed functions are out of this spec's scope and stay broken until their own follow-up specs update them.
 
 #### 1.4 Expected behavioural variants
@@ -84,7 +84,7 @@ The tests currently in `tests/test_interaction.py` that call the removed module-
 
 #### 2.4 The suite (NFR1–NFR5)
 
-- **T20** — `pytest` over `rally/tests/` reports no failures and no asynchronous test failing for a missing plugin (NFR3); the run is against the refactored library with every in-repo call site updated (NFR5); `black --check`, `isort --check`, `pylint` and `mypy` pass over `rally/` (NFR4).
+- **T20** — `pytest` over `rally/tests/` reports no failures and no asynchronous test failing for a missing plugin (NFR3); the run is against the refactored library with every in-repo call site updated (NFR5); `black --check`, `isort --check` and `mypy` are clean over `rally/`, and `pylint rally/` reports no message absent from `main` (NFR4) — 20 messages on `main`, 8 here, all pre-existing patterns (`W0511`, `R1705`, `W0718`, the four remaining constructor arities `R0913`/`R0917`, and the `requests.post` missing-timeout carried over from `interaction.py`). Both linter verdicts are only meaningful in a **clean checkout**: an ignored `/hydra/` job-output directory in a working copy makes `isort` and `pylint` read `hydra` as first-party, which adds two `chat.py` `C0411` messages and makes `isort --check` fail on a correctly-ordered file. `isort` is made environment-independent by the `[tool.isort]` pin; the `pylint` artefact is not, so `pylint` is compared in a `main` clone and a branch clone.
 - `rally/llm.py` imports nothing beyond the standard library, `requests` and `aiohttp` (NFR2), and the wire-compatibility claims are asserted by the literal expectations in T1–T17 (NFR1); both are checked by reading the module and the tests at review time, so neither has its own runtime test.
 - `rally/scripts/chat.py` (FR6) has no automated test in this repo and none is added; it is covered by the linters and by the manual smoke in 3.3. Recorded here so it is not silently uncovered.
 
@@ -120,24 +120,25 @@ The `Llm` object is the single owner of the request: it derives headers and body
 
 #### 3.3 Todo list
 
-1. [ ] Write the tests T1–T19 in `rally/tests/` (builders in `test_llm.py`, operations in `test_llm.py`, module surface and the retained helper in `test_interaction.py`) together with the `anyio_backend` fixture in `tests/conftest.py`.
-2. [ ] Run `pytest rally/tests/` and confirm the new tests fail for the expected reasons: the `Llm` has no `build_headers`/`build_payload`/`request*` attributes, and the asynchronous tests execute instead of erroring on a missing plugin.
-3. [ ] Add `Llm.build_headers()` and `Llm.build_payload()` to `rally/llm.py`.
-4. [ ] Add `Llm.request()` and `Llm.request_batch()` (synchronous, `requests`) to `rally/llm.py`.
-5. [ ] Add `Llm.arequest()` and `Llm.arequest_batch()` (asynchronous, `aiohttp`) to `rally/llm.py`, taking the connector limit from `max_concurrent_requests`.
-6. [ ] Reduce `rally/interaction.py` to `LlmMessage` and `make_up_message_history`; delete the six module-level request functions.
-7. [ ] Update `rally/scripts/chat.py` to `llm.request(messages)`.
-8. [ ] Run `pytest rally/tests/` and the linters (black, isort, pylint, mypy) over `rally/`, and confirm green (T20).
-9. [ ] Manual smoke of `rally/scripts/chat.py` against a reachable OpenAI-compatible endpoint: one normal turn-trip, verifying the reply renders and no request error is logged. If no endpoint is available at implementation time, record that limitation instead of claiming the check was done.
-10. [ ] Confirm no revision of spec 01 is required: FR4 restores exactly the `None`-omission semantics that spec 01 already specifies, so its requirement analysis is untouched.
+1. [x] Write the tests T1–T19 in `rally/tests/` (builders in `test_llm.py`, operations in `test_llm.py`, module surface and the retained helper in `test_interaction.py`) together with the `anyio_backend` fixture in `tests/conftest.py`.
+2. [x] Run `pytest rally/tests/` and confirm the new tests fail for the expected reasons: the `Llm` has no `build_headers`/`build_payload`/`request*` attributes, and the asynchronous tests execute instead of erroring on a missing plugin. (24 failed, 36 passed.)
+3. [x] Add `Llm.build_headers()` and `Llm.build_payload()` to `rally/llm.py`.
+4. [x] Add `Llm.request()` and `Llm.request_batch()` (synchronous, `requests`) to `rally/llm.py`.
+5. [x] Add `Llm.arequest()` and `Llm.arequest_batch()` (asynchronous, `aiohttp`) to `rally/llm.py`, taking the connector limit from `max_concurrent_requests`.
+6. [x] Reduce `rally/interaction.py` to `LlmMessage` and `make_up_message_history`; delete the six module-level request functions.
+7. [x] Update `rally/scripts/chat.py` to `llm.request(messages)`.
+8. [x] Run `pytest rally/tests/` and the linters (black, isort, pylint, mypy) over `rally/`, and confirm clean — pylint compared against the `main` baseline, not for zero messages (T20). (60 passed; black/isort/mypy clean; pylint 20 → 10 messages, none new.)
+9. [x] Manual smoke of `rally/scripts/chat.py`: run against a stub OpenAI-compatible server on the config's own port (`localhost:9191`), one turn plus a `quit` — the reply rendered, and the stub logged the exact wire request (`Content-Type: application/json`, no `Authorization`, body carrying only the system+user messages, matching variant row 9). A live run against the Caila endpoint of `config/llm/caila_qwen3_8b.yaml` reached the same code path but was rejected by the API (`the provided MLP-API-KEY was not found`), which exercised the invalid-response branch end-to-end (error logged, `None` returned, `chat.py` reported it and kept running). The authenticated success path therefore rests on the stub run, and the Caila key in `config/user_settings/user_settings.yaml` appears stale.
+10. [x] Confirm no revision of spec 01 is required: FR4 restores exactly the `None`-omission semantics that spec 01 already specifies, so its requirement analysis is untouched.
 
 #### 3.4 Modification summary
 
 | File | Action |
 |------|--------|
-| `rally/rally/llm.py` | Modified: add `build_headers()` and `build_payload()`; add `request()`, `request_batch()` (synchronous, `requests`) and `arequest()`, `arequest_batch()` (asynchronous, `aiohttp`), carrying the transport implementations moved from `rally/interaction.py` |
+| `rally/rally/llm.py` | Modified: add `build_headers()` and `build_payload()`; add `request()`, `request_batch()` (synchronous, `requests`) and `arequest()`, `arequest_batch()` (asynchronous, `aiohttp`), carrying the transport implementations moved from `rally/interaction.py`; a private `_arequest_with_session()` performs the single POST so that the batch shares one session |
 | `rally/rally/interaction.py` | Modified: remove the six module-level request functions and their transport code; keep `LlmMessage` and `make_up_message_history` |
-| `rally/rally/scripts/chat.py` | Modified: call `llm.request(messages)` instead of the module-level function |
+| `rally/rally/scripts/chat.py` | Modified: call `llm.request(messages)` instead of the module-level function, and raise on the `None` response that `mypy` now surfaces where the old `-> str` annotation hid it |
 | `rally/tests/test_llm.py` | Modified: add the builder tests (T1–T8) and the request-operation tests (T9–T17) |
 | `rally/tests/test_interaction.py` | Modified: reduced to the retained helper (T19) and the removal check (T18); the five suites of request tests are rewritten into `test_llm.py` |
 | `rally/tests/conftest.py` | Modified: add the `anyio_backend` fixture so the asynchronous tests execute |
+| `rally/pyproject.toml` | Modified (review fix): pin `hydra` as third-party in `[tool.isort]` and reorder `rally/scripts/chat.py`'s imports accordingly, so the import-order verdict no longer depends on whether an ignored `/hydra/` job-output directory exists in the checkout |
