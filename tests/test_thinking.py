@@ -1,5 +1,9 @@
-from rally.thinking import (THINKING_REMOVERS, remove_nothing,
-                            remove_thinking_qwen3, remove_thinking_qwq)
+from rally.thinking import (
+    THINKING_REMOVERS,
+    remove_nothing,
+    remove_thinking_qwen3,
+    remove_thinking_qwq,
+)
 
 
 class TestRemoveNothing:
