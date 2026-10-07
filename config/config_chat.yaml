@@ -2,7 +2,7 @@ defaults:
   - _self_
   - user_settings: user_settings
   - hydra: base
-  - llm: local
+  - llm: caila_qwen3_8b
 
 result_dir: ${user_settings.result_dir}
 hydra_root: ${user_settings.hydra_root}

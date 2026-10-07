@@ -1,8 +1,8 @@
+import hydra
 from hydra.utils import instantiate
 from omegaconf import DictConfig
 from rich.markdown import Markdown
 
-import hydra
 from rally.interaction import LlmMessage
 from rally.utils.common import get_config_path
 from rally.utils.console import console, prompt_user

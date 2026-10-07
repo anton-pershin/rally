@@ -33,5 +33,8 @@ disable = [
     "too-few-public-methods", # Allow classes with few methods
 ]
 
+[tool.isort]
+known_third_party = ["hydra"]
+
 [tool.mypy]
 disable_error_code = ["import-untyped"]
