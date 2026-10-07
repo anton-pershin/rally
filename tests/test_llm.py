@@ -1,11 +1,34 @@
 import json
 import logging
+import socket
+import time
 from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
+import requests
 
-from rally.llm import Llm, LocalLlm, OpenAiApiLlmWithAuthorization
+from rally.llm import (
+    Llm,
+    LlmAuthorizationError,
+    LlmError,
+    LlmStreamRejectedError,
+    LlmTimeoutError,
+    LlmTransportError,
+    LlmUsage,
+    LocalLlm,
+    OpenAiApiLlmWithAuthorization,
+)
+from tests.streaming_stub import (
+    StreamingStub,
+    broken_line,
+    content_line,
+    done_line,
+    keepalive_line,
+    reasoning_line,
+    role_line,
+    usage_line,
+)
 
 
 class TestLlm:
@@ -413,3 +436,307 @@ class TestArequestBatch:
             )
 
         assert contents == ["A1", None, "A3"]
+
+
+def free_port() -> int:
+    """A port nothing is listening on, for the connection-refused case."""
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        return int(probe.getsockname()[1])
+
+
+class TestStream:
+    """The streamed request: FR1, FR8 (variants rows 14, 15, 16, 19)."""
+
+    def test_stream_posts_built_headers_and_body_with_stream_keys(
+        self, sample_message_history: list[Any]
+    ) -> None:
+        with StreamingStub(lines=[done_line()]) as stub:
+            llm = make_llm(
+                url=stub.url,
+                model="qwen3-8b",
+                max_output_tokens=100,
+                enable_thinking=False,
+            )
+            list(llm.stream(sample_message_history))
+
+        assert len(stub.requests) == 1
+        received = stub.requests[0]
+        assert received["headers"]["Content-Type"] == "application/json"
+        assert "Authorization" not in received["headers"]
+        assert received["body"] == {
+            "messages": sample_message_history,
+            "model": "qwen3-8b",
+            "max_completion_tokens": 100,
+            "max_tokens": 100,
+            "chat_template_kwargs": {"enable_thinking": False},
+            "stream": True,
+            "stream_options": {"include_usage": True},
+        }
+
+    def test_stream_body_omits_unconfigured_parameters(
+        self, sample_message_history: list[Any]
+    ) -> None:
+        with StreamingStub(lines=[done_line()]) as stub:
+            list(make_llm(url=stub.url).stream(sample_message_history))
+
+        assert stub.requests[0]["body"] == {
+            "messages": sample_message_history,
+            "stream": True,
+            "stream_options": {"include_usage": True},
+        }
+
+    def test_stream_without_authorization_sends_no_authorization_header(
+        self, sample_message_history: list[Any]
+    ) -> None:
+        with StreamingStub(lines=[done_line()]) as unauthorised:
+            list(make_llm(url=unauthorised.url).stream(sample_message_history))
+        with StreamingStub(lines=[done_line()]) as authorised:
+            llm = make_llm(url=authorised.url, authorization="Bearer secret")
+            list(llm.stream(sample_message_history))
+
+        assert "Authorization" not in unauthorised.requests[0]["headers"]
+        assert authorised.requests[0]["headers"]["Authorization"] == "Bearer secret"
+
+
+class TestStreamEvents:
+    """Event delivery: FR2-FR6 (variants rows 1-7, 20)."""
+
+    def test_content_chunks_yield_one_event_each_in_order(
+        self, sample_message_history: list[Any]
+    ) -> None:
+        lines = [content_line("Al"), content_line("ice"), done_line()]
+        with StreamingStub(lines=lines) as stub:
+            events = list(make_llm(url=stub.url).stream(sample_message_history))
+
+        contents = [event.content for event in events if event.content]
+        assert contents == ["Al", "ice"]
+        assert "".join(contents) == "Alice"
+        assert events[-1].finished is True
+
+    def test_usage_is_visible_with_both_token_counts(
+        self, sample_message_history: list[Any]
+    ) -> None:
+        lines = [content_line("hi"), usage_line(12, 5), done_line()]
+        with StreamingStub(lines=lines) as stub:
+            events = list(make_llm(url=stub.url).stream(sample_message_history))
+
+        usages = [event.usage for event in events if event.usage is not None]
+        assert usages == [LlmUsage(prompt_tokens=12, completion_tokens=5)]
+
+    def test_absent_usage_leaves_usage_unset_and_content_events_countable(
+        self, sample_message_history: list[Any]
+    ) -> None:
+        lines = [content_line("a"), content_line("b"), done_line()]
+        with StreamingStub(lines=lines) as stub:
+            events = list(make_llm(url=stub.url).stream(sample_message_history))
+
+        assert all(event.usage is None for event in events)
+        assert len([event for event in events if event.content]) == 2
+
+    def test_reasoning_is_separate_from_content(
+        self, sample_message_history: list[Any]
+    ) -> None:
+        lines = [reasoning_line("let me think"), content_line("ok"), done_line()]
+        with StreamingStub(lines=lines) as stub:
+            events = list(make_llm(url=stub.url).stream(sample_message_history))
+
+        reasoning_events = [event for event in events if event.reasoning]
+        assert [event.reasoning for event in reasoning_events] == ["let me think"]
+        assert reasoning_events[0].content is None
+        assert "".join(event.content or "" for event in events) == "ok"
+
+    def test_contentless_chunk_yields_event_without_content(
+        self, sample_message_history: list[Any]
+    ) -> None:
+        with StreamingStub(lines=[role_line(), done_line()]) as stub:
+            events = list(make_llm(url=stub.url).stream(sample_message_history))
+
+        assert [event for event in events if event.content] == []
+        assert [event for event in events if not event.content and not event.finished]
+
+    def test_end_marker_yields_final_event_and_closes_iteration(
+        self, sample_message_history: list[Any]
+    ) -> None:
+        lines = [content_line("x"), done_line(), content_line("never")]
+        with StreamingStub(lines=lines) as stub:
+            events = list(make_llm(url=stub.url).stream(sample_message_history))
+
+        assert [event.content for event in events if event.content] == ["x"]
+        assert events[-1].finished is True
+
+    def test_stream_without_end_marker_ends_at_response_close(
+        self, sample_message_history: list[Any]
+    ) -> None:
+        lines = [content_line("a"), content_line("b")]
+        with StreamingStub(lines=lines) as stub:
+            events = list(make_llm(url=stub.url).stream(sample_message_history))
+
+        assert [event.content for event in events if event.content] == ["a", "b"]
+        assert events[-1].finished is True
+
+    def test_events_arrive_incrementally_not_buffered(
+        self, sample_message_history: list[Any]
+    ) -> None:
+        lines = [content_line("a"), content_line("b"), content_line("c")]
+        with StreamingStub(lines=lines, delay=0.15) as stub:
+            arrivals = []
+            for event in make_llm(url=stub.url).stream(sample_message_history):
+                if event.content:
+                    arrivals.append(time.perf_counter())
+
+        assert len(arrivals) == 3
+        # A buffering implementation delivers every event together, so the gap
+        # between the first and the last content event collapses to ~0.
+        assert arrivals[-1] - arrivals[0] > 0.1
+
+    def test_non_chunk_lines_are_skipped(
+        self, sample_message_history: list[Any]
+    ) -> None:
+        lines = [
+            keepalive_line(),
+            content_line("a"),
+            broken_line(),
+            content_line("b"),
+            done_line(),
+        ]
+        with StreamingStub(lines=lines) as stub:
+            events = list(make_llm(url=stub.url).stream(sample_message_history))
+
+        assert [event.content for event in events if event.content] == ["a", "b"]
+
+
+class TestStreamFailures:
+    """Failures and the timeout: FR7, FR9 (variants rows 8-13)."""
+
+    @pytest.mark.parametrize("status", [401, 403])
+    def test_authorization_failure_is_its_own_error(
+        self, sample_message_history: list[Any], status: int
+    ) -> None:
+        with StreamingStub(status=status) as stub:
+            with pytest.raises(LlmAuthorizationError):
+                list(make_llm(url=stub.url).stream(sample_message_history))
+
+    def test_rejected_stream_raises_with_status(
+        self, sample_message_history: list[Any]
+    ) -> None:
+        with StreamingStub(status=500, body=b'{"error": "boom"}') as stub:
+            with pytest.raises(LlmStreamRejectedError) as failure:
+                list(make_llm(url=stub.url).stream(sample_message_history))
+
+        assert failure.value.status == 500
+
+    def test_transport_failure_before_content(
+        self, sample_message_history: list[Any]
+    ) -> None:
+        url = f"http://127.0.0.1:{free_port()}/v1/chat/completions"
+        with pytest.raises(LlmTransportError):
+            list(make_llm(url=url).stream(sample_message_history))
+
+    def test_transport_failure_mid_stream_after_delivered_events(
+        self, sample_message_history: list[Any]
+    ) -> None:
+        lines = [content_line("a"), content_line("b")]
+        with StreamingStub(lines=lines, mode="abrupt", abrupt_after=1) as stub:
+            delivered = []
+            with pytest.raises(LlmTransportError):
+                for event in make_llm(url=stub.url).stream(sample_message_history):
+                    if event.content:
+                        delivered.append(event.content)
+
+        assert delivered == ["a"]
+
+    def test_stream_with_no_content_is_not_an_error(
+        self, sample_message_history: list[Any]
+    ) -> None:
+        with StreamingStub(lines=[done_line()]) as stub:
+            events = list(make_llm(url=stub.url).stream(sample_message_history))
+
+        assert [event for event in events if event.content] == []
+        assert events[-1].finished is True
+
+    @pytest.mark.parametrize("mode", ["silent", "silent_after_headers"])
+    def test_timeout_is_its_own_error_and_reaches_every_constructor(
+        self, sample_message_history: list[Any], mode: str
+    ) -> None:
+        with StreamingStub(mode=mode) as stub:
+            llm = make_llm(url=stub.url, timeout=0.3)
+            with pytest.raises(LlmTimeoutError):
+                list(llm.stream(sample_message_history))
+
+        assert make_llm().timeout is None
+        assert (
+            LocalLlm(
+                url="http://localhost:9191/v1/chat/completions",
+                max_concurrent_requests=1,
+                model_family="qwen3",
+                timeout=5.0,
+            ).timeout
+            == 5.0
+        )
+        assert (
+            OpenAiApiLlmWithAuthorization(
+                url="https://example.invalid/v1/chat/completions",
+                max_concurrent_requests=1,
+                api_key="key",
+                model="m",
+                timeout=5.0,
+            ).timeout
+            == 5.0
+        )
+
+    def test_failure_types_are_distinguishable(self) -> None:
+        assert issubclass(LlmAuthorizationError, LlmError)
+        assert issubclass(LlmStreamRejectedError, LlmError)
+        assert issubclass(LlmTransportError, LlmError)
+        assert issubclass(LlmTimeoutError, LlmTransportError)
+        assert not issubclass(LlmAuthorizationError, LlmStreamRejectedError)
+        assert not isinstance(LlmTransportError("gone"), LlmTimeoutError)
+        assert LlmStreamRejectedError(status=418, message="teapot").status == 418
+
+
+class TestStreamLifecycle:
+    """Early stop releases the response: FR11 (variant row 17)."""
+
+    def test_early_stop_releases_the_response(
+        self, sample_message_history: list[Any]
+    ) -> None:
+        lines = [content_line("a"), content_line("b"), content_line("c")]
+        released: list[str] = []
+        real_post = requests.post
+
+        def _recording_post(*args: Any, **kwargs: Any) -> Any:
+            response = real_post(*args, **kwargs)
+            original_close = response.close
+
+            def _close() -> None:
+                released.append("closed")
+                original_close()
+
+            response.close = _close
+            return response
+
+        with StreamingStub(lines=lines, delay=0.05) as stub:
+            with patch("rally.llm.requests.post", side_effect=_recording_post):
+                events = make_llm(url=stub.url).stream(sample_message_history)
+                first = [next(events), next(events)]
+                events.close()
+
+        assert [event.content for event in first] == ["a", "b"]
+        assert released == ["closed"]
+
+
+class TestNonStreamingUnchanged:
+    """The non-streaming surface is untouched: FR10 (variant row 18)."""
+
+    def test_request_returns_none_instead_of_raising(
+        self, sample_message_history: list[Any]
+    ) -> None:
+        body = json.dumps({"choices": []}).encode("utf-8")
+        with StreamingStub(mode="json", body=body) as stub:
+            llm = make_llm(url=stub.url, model="m", authorization="Bearer secret")
+            assert llm.request(sample_message_history) is None
+            assert stub.requests[0]["body"] == {
+                "messages": sample_message_history,
+                "model": "m",
+            }

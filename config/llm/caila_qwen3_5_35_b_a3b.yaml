@@ -4,3 +4,4 @@ api_key: ${user_settings.caila_api_key}
 model: qwen/qwen3.5-35b-a3b
 max_concurrent_requests: 16
 enable_thinking: true
+timeout:
