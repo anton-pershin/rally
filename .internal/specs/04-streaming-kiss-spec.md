@@ -66,6 +66,8 @@ rally owns what an LLM request is: `Llm` builds its own headers and body, and th
 | 16 | no authorization is configured | no `Authorization` header is sent |
 | 17 | a consumer stops iterating early | the response is released; nothing hangs and nothing leaks |
 | 18 | an existing non-streaming operation is called | unchanged behaviour and returns |
+| 19 | a streaming request is sent | the body is the `Llm`'s body plus exactly `stream: true` and `stream_options: {"include_usage": true}`, and the headers are the `Llm`'s headers |
+| 20 | a line that is not a chunk (keep-alive or malformed) arrives mid-stream | it is skipped and the surrounding content is still delivered |
 
 ### 2. Tests
 
