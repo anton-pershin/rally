@@ -98,14 +98,14 @@ Test infrastructure: a stub streaming server, added as the helper `tests/streami
 - **T15** — `TestStreamFailures::test_transport_failure_before_content`: an `Llm` pointed at a closed port raises the transport error (row 10).
 - **T16** — `TestStreamFailures::test_transport_failure_mid_stream_after_delivered_events`: the stub sends one content chunk and then closes the connection abruptly; the events already delivered were yielded, and the transport error follows (row 11).
 - **T17** — `TestStreamFailures::test_stream_with_no_content_is_not_an_error`: the end marker arrives with no content chunk at all — no exception, and the consumer sees zero content-bearing events (row 12).
-- **T18** — `TestStreamFailures::test_timeout_is_its_own_error_and_respects_the_configured_value`: with a small timeout configured on the `Llm` and a stub that accepts the connection and never sends, the timeout error is raised — the timeout type, not merely the transport type (FR9, row 13).
+- **T18** — `TestStreamFailures::test_timeout_is_its_own_error_and_reaches_every_constructor`: parametrised over a stub that never answers and one that sends its headers and then goes silent, each raising the timeout type rather than merely the transport type; and the field reaches `Llm`, `LocalLlm` and `OpenAiApiLlmWithAuthorization` unchanged, with `None` as the default (FR9, row 13).
 - **T19** — `TestStreamFailures::test_failure_types_are_distinguishable`: one place asserting the four types are mutually distinguishable (authorization, rejection, transport, timeout), including that a plain transport failure is not the timeout type, so a consumer can branch on them (FR7).
 
 #### 2.4 Early stop, the non-streaming surface, and the suite (FR10, FR11 — rows 17, 18; NFR1–NFR5)
 
-- **T20** — `TestStreamLifecycle::test_early_stop_releases_the_response`: a consumer that iterates two events and breaks leaves nothing open — the response is closed (asserted on the response object, or on the stub observing the disconnect) — and the test does not hang (FR11, row 17).
+- **T20** — `TestStreamLifecycle::test_early_stop_releases_the_response`: the response's own `close()` is spied on, a consumer iterates two events and then closes the iterator, and the spy must have recorded the release; the test does not hang (FR11, row 17).
 - **T21** — `TestNonStreamingUnchanged::test_existing_operations_keep_their_semantics`: the existing `tests/test_llm.py` cases for `request`, `arequest`, `request_batch` and `arequest_batch` pass untouched, and none of them raises any of the new error types (FR10, row 18).
-- **T22** — the suite (NFR1–NFR5): `pytest` over `rally/tests/` — the 60 existing tests plus the new ones — reports no failures; `black --check`, `isort --check` and `mypy` are clean over `rally/`; `pylint rally/` reports no message absent from `main`, compared between a clean `main` clone and a branch clone, because the ignored `/hydra/` job-output directory otherwise makes `isort` and `pylint` classify `hydra` as first-party and changes both verdicts. The `requests.post` missing-timeout message on the existing non-streaming path is pre-existing and stays; the new streaming call site passes a timeout (NFR3).
+- **T22** — the suite (NFR1–NFR5): `pytest` over `rally/tests/` — the 60 existing tests plus the new ones — reports no failures; `black --check`, `isort --check` and `mypy` are clean over `rally/` and `tests/`; `pylint rally/` reports no message absent from `main`, compared between a clean `main` clone and a branch clone, because the ignored `/hydra/` job-output directory otherwise makes `isort` and `pylint` classify `hydra` as first-party and changes both verdicts. The `requests.post` missing-timeout message on the existing non-streaming path is pre-existing and stays; the new streaming call site passes a timeout (NFR3). Bringing the two formatters into agreement needed `[tool.isort] profile = "black"`, because nothing pinned isort's wrapping style and black does not accept isort's default one for a long import; that pin made isort flag one pre-existing test module, which is reformatted in the same change rather than left failing. Measured verdicts, taken in clones of `main` and of the branch: `main` 60 passed, `pylint` 8 messages, `isort` clean, `black` failing on that one test module, `mypy` clean; branch 83 passed, `pylint` 8 messages with the same codes and counts, `isort`, `black` and `mypy` clean.
 - The wire claims are asserted by the literal expectations of T1–T3 rather than against the builders (NFR5), and no consumer repo is exercised here: `slam-core`, `slam-eval`, `kygs`, `entity-processing` and `lecture-me` are untouched by this spec and re-pointed by their own follow-ups (NFR4). No manual smoke test is needed — the stub server gives real wire evidence, which a mocked transport cannot.
 
 ### 3. Implementation plan
@@ -129,14 +129,14 @@ flowchart LR
 
 #### 3.3 Todo list
 
-1. [ ] Write the tests, and the stub streaming server they need
-2. [ ] Run all the tests and ensure that they fail
-3. [ ] `rally/llm.py`: `LlmStreamEvent`, `LlmUsage`, and `stream()` on `Llm` — headers and body from the builders plus the two streaming keys, yielding events incrementally (T1–T12)
-4. [ ] `rally/llm.py`: the error family, applied in `stream()` — authorization, rejection carrying the status, transport, timeout (T13–T19)
-5. [ ] `rally/llm.py`: the `timeout` field on `Llm`, `LocalLlm` and `OpenAiApiLlmWithAuthorization`, plus `timeout:` in the llm configs (T18)
-6. [ ] Confirm early stop releases the response and the non-streaming operations are untouched (T20, T21)
-7. [ ] Run the suite and the four linters, comparing `pylint` and `isort` against a clean `main` clone (T22)
-8. [ ] Commit
+1. [x] Write the tests, and the stub streaming server they need
+2. [x] Run all the tests and ensure that they fail
+3. [x] `rally/llm.py`: `LlmStreamEvent`, `LlmUsage`, and `stream()` on `Llm` — headers and body from the builders plus the two streaming keys, yielding events incrementally (T1–T12)
+4. [x] `rally/llm.py`: the error family, applied in `stream()` — authorization, rejection carrying the status, transport, timeout (T13–T19)
+5. [x] `rally/llm.py`: the `timeout` field on `Llm`, `LocalLlm` and `OpenAiApiLlmWithAuthorization`, plus `timeout:` in the llm configs (T18)
+6. [x] Confirm early stop releases the response and the non-streaming operations are untouched (T20, T21)
+7. [x] Run the suite and the four linters, comparing `pylint` and `isort` against a clean `main` clone (T22)
+8. [x] Commit
 
 #### 3.4 Modification summary
 
@@ -146,4 +146,6 @@ flowchart LR
 | `config/llm/*.yaml` | Modified: `timeout:` — null by default, so the field is visible wherever an `Llm` is configured |
 | `tests/test_llm.py` | Modified: T1–T21 |
 | `tests/streaming_stub.py` | New: the scripted streaming stub server |
+| `pyproject.toml` | Modified: `[tool.isort] profile = "black"`, so isort and black agree on wrapped imports |
+| `tests/test_thinking.py` | Modified: the import block the pinned profile reformats — black already flagged this file on `main` |
 | `.internal/specs/04-streaming-kiss-spec.md` | New |
