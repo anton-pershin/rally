@@ -62,6 +62,20 @@ class LlmTimeoutError(LlmTransportError):
     """No data arrived within the configured timeout."""
 
 
+def _first_present(delta: dict[str, Any], *keys: str) -> Optional[str]:
+    """The value of the first key the provider actually sent, or ``None``.
+
+    OpenAI-compatible servers put the reasoning trace under ``reasoning_content``
+    or under ``reasoning``, so both are tried in that order. Unlike ``or``, a key
+    counts only when it is present: an empty delta stays empty instead of
+    borrowing another key's text.
+    """
+    for key in keys:
+        if key in delta:
+            return delta[key]
+    return None
+
+
 _TIMEOUT_NAMES = {"ReadTimeoutError", "ConnectTimeoutError", "TimeoutError"}
 
 
@@ -71,6 +85,16 @@ def _raised_by_timeout(error: BaseException) -> bool:
     ``requests`` reports a read timeout that happens while a streamed body is
     being read as a ``ConnectionError``, so the cause chain has to be walked to
     tell a stalled server from a connection that was dropped.
+
+    The ``isinstance`` checks carry the classification, and the name set only
+    backstops them. A server that never answers fails before any body is read,
+    so ``requests`` raises its own ``ReadTimeout``, which is a
+    ``requests.exceptions.Timeout``. A server that stalls mid-stream surfaces as
+    a ``ConnectionError`` wrapping urllib3's ``ReadTimeoutError``, whose deepest
+    cause is the stdlib ``socket.timeout`` -- the builtin ``TimeoutError`` on
+    Python 3.10+, and this package requires 3.12. Either way a timeout is
+    recognised by type, so a rename inside ``urllib3`` cannot quietly turn a
+    stalled read into a plain transport failure.
     """
     seen: set[int] = set()
     current: Optional[BaseException] = error
@@ -215,7 +239,7 @@ class Llm:  # pylint: disable=too-many-instance-attributes
 
         return LlmStreamEvent(
             content=delta.get("content"),
-            reasoning=delta.get("reasoning_content") or delta.get("reasoning"),
+            reasoning=_first_present(delta, "reasoning_content", "reasoning"),
             finish_reason=choice.get("finish_reason"),
             usage=(
                 LlmUsage(

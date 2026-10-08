@@ -23,6 +23,7 @@ from tests.streaming_stub import (
     StreamingStub,
     broken_line,
     content_line,
+    delta_line,
     done_line,
     finish_line,
     keepalive_line,
@@ -545,6 +546,22 @@ class TestStreamEvents:
         assert [event.reasoning for event in reasoning_events] == ["let me think"]
         assert reasoning_events[0].content is None
         assert "".join(event.content or "" for event in events) == "ok"
+
+    def test_reasoning_reads_the_key_the_provider_sent(
+        self, sample_message_history: list[Any]
+    ) -> None:
+        lines = [
+            delta_line({"reasoning_content": "", "reasoning": "other text"}),
+            delta_line({"reasoning": "alternate spelling"}),
+            done_line(),
+        ]
+        with StreamingStub(lines=lines) as stub:
+            events = list(make_llm(url=stub.url).stream(sample_message_history))
+
+        # The key the provider sent decides, even when it is empty: an empty
+        # delta must not borrow the text of the other spelling.
+        assert events[0].reasoning == ""
+        assert events[1].reasoning == "alternate spelling"
 
     def test_contentless_chunk_yields_event_without_content(
         self, sample_message_history: list[Any]

@@ -22,6 +22,15 @@ def content_line(text: str) -> str:
     return _event_line({"choices": [{"index": 0, "delta": {"content": text}}]})
 
 
+def delta_line(delta: dict[str, Any]) -> str:
+    """An SSE line for a chunk carrying an arbitrary delta.
+
+    For shapes no provider in the configs sends, such as a chunk that carries
+    two spellings of the reasoning trace at once.
+    """
+    return _event_line({"choices": [{"index": 0, "delta": delta}]})
+
+
 def reasoning_line(text: str) -> str:
     """An SSE line whose chunk carries the reasoning trace, not content."""
     return _event_line(
