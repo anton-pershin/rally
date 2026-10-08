@@ -23,15 +23,19 @@ class LlmStreamEvent:
     """One typed event of a streamed completion.
 
     ``content`` and ``reasoning`` carry the deltas of the chunk that produced
-    the event, ``usage`` the report when the server sends one, and ``finished``
-    marks the final event. No provider field name is exposed here on purpose:
-    translating the provider's dialect is this module's job, not the caller's.
+    the event, ``usage`` the report when the server sends one, and
+    ``finish_reason`` the server's declaration of why the completion finished.
+    There is deliberately no "finished" flag: the iteration ending already says
+    the stream is over, and only the finish reason answers whether the server
+    declared the completion complete. No provider field name is exposed here on
+    purpose: translating the provider's dialect is this module's job, not the
+    caller's.
     """
 
     content: Optional[str] = None
     reasoning: Optional[str] = None
     usage: Optional[LlmUsage] = None
-    finished: bool = False
+    finish_reason: Optional[str] = None
 
 
 class LlmError(Exception):
@@ -192,7 +196,6 @@ class Llm:  # pylint: disable=too-many-instance-attributes
                     continue  # blank keep-alive and comment lines carry nothing
                 data = line[len("data:") :].strip()
                 if data == "[DONE]":
-                    yield LlmStreamEvent(finished=True)
                     return
                 try:
                     chunk = json.loads(data)
@@ -202,18 +205,18 @@ class Llm:  # pylint: disable=too-many-instance-attributes
         except requests.exceptions.RequestException as err:
             raise _stream_failure(err) from err
 
-        yield LlmStreamEvent(finished=True)
-
     @staticmethod
     def _event_from_chunk(chunk: Any) -> LlmStreamEvent:
         """One typed event for one provider chunk, whose fields may be absent."""
         usage = chunk.get("usage")
         choices = chunk.get("choices") or []
-        delta = (choices[0].get("delta") or {}) if choices else {}
+        choice = choices[0] if choices else {}
+        delta = choice.get("delta") or {}
 
         return LlmStreamEvent(
             content=delta.get("content"),
             reasoning=delta.get("reasoning_content") or delta.get("reasoning"),
+            finish_reason=choice.get("finish_reason"),
             usage=(
                 LlmUsage(
                     prompt_tokens=usage.get("prompt_tokens"),

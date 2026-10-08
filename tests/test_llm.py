@@ -24,6 +24,7 @@ from tests.streaming_stub import (
     broken_line,
     content_line,
     done_line,
+    finish_line,
     keepalive_line,
     reasoning_line,
     role_line,
@@ -512,7 +513,6 @@ class TestStreamEvents:
         contents = [event.content for event in events if event.content]
         assert contents == ["Al", "ice"]
         assert "".join(contents) == "Alice"
-        assert events[-1].finished is True
 
     def test_usage_is_visible_with_both_token_counts(
         self, sample_message_history: list[Any]
@@ -552,18 +552,25 @@ class TestStreamEvents:
         with StreamingStub(lines=[role_line(), done_line()]) as stub:
             events = list(make_llm(url=stub.url).stream(sample_message_history))
 
-        assert [event for event in events if event.content] == []
-        assert [event for event in events if not event.content and not event.finished]
+        assert len(events) == 1
+        assert events[0].content is None
 
     def test_end_marker_yields_final_event_and_closes_iteration(
         self, sample_message_history: list[Any]
     ) -> None:
-        lines = [content_line("x"), done_line(), content_line("never")]
+        lines = [
+            content_line("x"),
+            finish_line("stop"),
+            done_line(),
+            content_line("never"),
+        ]
         with StreamingStub(lines=lines) as stub:
             events = list(make_llm(url=stub.url).stream(sample_message_history))
 
         assert [event.content for event in events if event.content] == ["x"]
-        assert events[-1].finished is True
+        assert [event.finish_reason for event in events if event.finish_reason] == [
+            "stop"
+        ]
 
     def test_stream_without_end_marker_ends_at_response_close(
         self, sample_message_history: list[Any]
@@ -573,7 +580,7 @@ class TestStreamEvents:
             events = list(make_llm(url=stub.url).stream(sample_message_history))
 
         assert [event.content for event in events if event.content] == ["a", "b"]
-        assert events[-1].finished is True
+        assert all(event.finish_reason is None for event in events)
 
     def test_events_arrive_incrementally_not_buffered(
         self, sample_message_history: list[Any]
@@ -652,8 +659,7 @@ class TestStreamFailures:
         with StreamingStub(lines=[done_line()]) as stub:
             events = list(make_llm(url=stub.url).stream(sample_message_history))
 
-        assert [event for event in events if event.content] == []
-        assert events[-1].finished is True
+        assert events == []
 
     @pytest.mark.parametrize("mode", ["silent", "silent_after_headers"])
     def test_timeout_is_its_own_error_and_reaches_every_constructor(

@@ -47,6 +47,13 @@ def usage_line(prompt_tokens: int, completion_tokens: int) -> str:
     )
 
 
+def finish_line(reason: str) -> str:
+    """An SSE line for the chunk that declares why the completion finished."""
+    return _event_line(
+        {"choices": [{"index": 0, "delta": {}, "finish_reason": reason}]}
+    )
+
+
 def done_line() -> str:
     """The provider's end-of-stream marker."""
     return "data: [DONE]\n\n"
