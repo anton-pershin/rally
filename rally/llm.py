@@ -24,18 +24,20 @@ class LlmStreamEvent:
 
     ``content`` and ``reasoning`` carry the deltas of the chunk that produced
     the event, ``usage`` the report when the server sends one, and
-    ``finish_reason`` the server's declaration of why the completion finished.
-    There is deliberately no "finished" flag: the iteration ending already says
-    the stream is over, and only the finish reason answers whether the server
-    declared the completion complete. No provider field name is exposed here on
-    purpose: translating the provider's dialect is this module's job, not the
-    caller's.
+    ``finish_reason`` the server's own declaration of why the completion
+    finished, kept verbatim. ``truncated`` is the semantic reading of that
+    declaration which the ecosystem uses: the cap cut the answer short. There is
+    deliberately no "finished" flag: the iteration ending already says the
+    stream is over, and only the finish reason answers whether the server
+    declared the completion complete. No provider vocabulary is left for the
+    caller to interpret: reading the provider's dialect is this module's job.
     """
 
     content: Optional[str] = None
     reasoning: Optional[str] = None
     usage: Optional[LlmUsage] = None
     finish_reason: Optional[str] = None
+    truncated: bool = False
 
 
 class LlmError(Exception):
@@ -74,6 +76,18 @@ def _first_present(delta: dict[str, Any], *keys: str) -> Optional[str]:
         if key in delta:
             return delta[key]
     return None
+
+
+_TRUNCATING_REASONS = {"length"}
+
+
+def _is_truncated(finish_reason: Optional[str]) -> bool:
+    """True when the server ended the completion because the cap was reached.
+
+    ``"length"`` is the OpenAI-compatible declaration for that, and it is
+    spelled here once so that no consumer has to know the provider's vocabulary.
+    """
+    return finish_reason in _TRUNCATING_REASONS
 
 
 _TIMEOUT_NAMES = {"ReadTimeoutError", "ConnectTimeoutError", "TimeoutError"}
@@ -236,11 +250,13 @@ class Llm:  # pylint: disable=too-many-instance-attributes
         choices = chunk.get("choices") or []
         choice = choices[0] if choices else {}
         delta = choice.get("delta") or {}
+        finish_reason = choice.get("finish_reason")
 
         return LlmStreamEvent(
             content=delta.get("content"),
             reasoning=_first_present(delta, "reasoning_content", "reasoning"),
-            finish_reason=choice.get("finish_reason"),
+            finish_reason=finish_reason,
+            truncated=_is_truncated(finish_reason),
             usage=(
                 LlmUsage(
                     prompt_tokens=usage.get("prompt_tokens"),

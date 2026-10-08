@@ -589,6 +589,27 @@ class TestStreamEvents:
             "stop"
         ]
 
+    def test_truncated_finish_reason_is_marked_truncated(
+        self, sample_message_history: list[Any]
+    ) -> None:
+        lines = [content_line("partial"), finish_line("length"), done_line()]
+        with StreamingStub(lines=lines) as stub:
+            events = list(make_llm(url=stub.url).stream(sample_message_history))
+
+        terminated = [event for event in events if event.finish_reason]
+        assert [event.finish_reason for event in terminated] == ["length"]
+        assert [event.truncated for event in terminated] == [True]
+
+    def test_other_finish_reasons_are_not_marked_truncated(
+        self, sample_message_history: list[Any]
+    ) -> None:
+        lines = [content_line("done"), finish_line("stop"), done_line()]
+        with StreamingStub(lines=lines) as stub:
+            events = list(make_llm(url=stub.url).stream(sample_message_history))
+
+        assert any(event.finish_reason == "stop" for event in events)
+        assert all(event.truncated is False for event in events)
+
     def test_stream_without_end_marker_ends_at_response_close(
         self, sample_message_history: list[Any]
     ) -> None:
