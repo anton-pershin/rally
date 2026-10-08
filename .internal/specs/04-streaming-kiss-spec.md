@@ -10,11 +10,11 @@ rally owns what an LLM request is: `Llm` builds its own headers and body, and th
 
 **FR1.** `Llm` gains a synchronous streaming operation, `stream(message_history)`, sending the `Llm`'s own headers and its own body (`build_headers()`, `build_payload()`) plus exactly `stream: true` and `stream_options: {"include_usage": true}`.
 
-**FR2.** The operation yields typed stream events, not raw provider chunks. An event carries the content delta of its chunk (or none), the reasoning delta when the server streams the reasoning trace separately (or none), the usage report when the server sends one (or none), and whether it is the final event. A consumer never reads provider field names — `choices`, `delta`, the usage key, the end marker — to understand an event.
+**FR2.** The operation yields typed stream events, not raw provider chunks. An event carries the content delta of its chunk (or none), the reasoning delta when the server streams the reasoning trace separately (or none), the usage report when the server sends one (or none), and the finish reason when the server declares one (or none). A consumer never reads provider field names — `choices`, `delta`, the usage key, the end marker — to understand an event.
 
 **FR3.** Delivery is incremental: each event is yielded as its chunk arrives, so a consumer can timestamp it, and events are in arrival order. The operation does not buffer the response and return it at the end — TTFT and TPOT are measurable only from arrival times.
 
-**FR4.** The end of the stream is visible to the consumer as an explicit final event; no provider marker has to be decoded to learn that the stream is over.
+**FR4.** The iteration ends when the server's stream ends, whether by its end marker or by the close of the response, and the consumer decodes no provider marker to learn that. There is deliberately no `finished` flag on an event: the iteration ending already says the stream is over, and whether the server declared the completion complete is answered by the finish reason alone — set when the server declares one, unset when it does not, which is what keeps a declared end distinguishable from an end that merely happened.
 
 **FR5.** A consumer can assemble the completion by concatenating event contents, and can know how many events carried content, so a server that reports no usage still leaves the consumer able to count content-bearing events.
 
@@ -53,8 +53,8 @@ rally owns what an LLM request is: `Llm` builds its own headers and body, and th
 | 3 | the server streams the reasoning trace separately | the reasoning text is visible on its events and never mixed into the content |
 | 4 | the server reports no usage | the consumer can count content-bearing events instead |
 | 5 | a chunk carries no content (role-only or empty delta) | delivered as an event with no content, not counted as content |
-| 6 | the server sends the end marker | an explicit final event is delivered and iteration ends normally |
-| 7 | the stream ends without an end marker | iteration ends at the close of the response, the final event still delivered |
+| 6 | the server declares the completion finished and sends its end marker | the finish reason is visible on the event and the iteration ends normally |
+| 7 | the stream ends with no end marker and no finish reason | the iteration ends at the close of the response and the finish reason is unset — an unmarked end the consumer can see |
 | 8 | HTTP 401 or 403 | the authorization failure of FR7 is raised |
 | 9 | another HTTP status | the rejection of FR7 is raised, carrying the status |
 | 10 | connection refused or reset before any content | the transport failure of FR7 is raised |
@@ -85,9 +85,9 @@ Test infrastructure: a stub streaming server, added as the helper `tests/streami
 - **T5** — `TestStreamEvents::test_usage_is_visible_with_both_token_counts`: a final usage chunk yields an event carrying the prompt and completion token counts (FR2, row 2).
 - **T6** — `TestStreamEvents::test_absent_usage_leaves_usage_unset_and_content_events_countable`: with no usage chunk every event's usage is unset and the number of content-bearing events is observable to the consumer (FR5, row 4).
 - **T7** — `TestStreamEvents::test_reasoning_is_separate_from_content`: a chunk carrying reasoning text yields an event whose reasoning is set and whose content is unset, and the reasoning text appears in no concatenated content (FR6, row 3).
-- **T8** — `TestStreamEvents::test_contentless_chunk_yields_event_without_content`: a role-only or empty-delta chunk yields an event carrying no content, and it does not count as a content-bearing event (FR2, row 5).
-- **T9** — `TestStreamEvents::test_end_marker_yields_final_event_and_closes_iteration`: the end marker produces a final event and the iteration then stops (FR4, row 6).
-- **T10** — `TestStreamEvents::test_stream_without_end_marker_ends_at_response_close`: a response that simply closes, with no marker, still ends the iteration, the final event delivered (FR4, row 7).
+| T8 | `test_contentless_chunk_yields_event_without_content`: a role-only or empty-delta chunk yields exactly one event carrying no content, and it does not count as a content-bearing event (FR2, row 5).
+- **T9** — `TestStreamEvents::test_end_marker_yields_final_event_and_closes_iteration`: a chunk declaring its finish reason yields an event carrying that reason, the end marker then ends the iteration, and a chunk sent after the marker is never delivered (FR2, FR4, row 6).
+- **T10** — `TestStreamEvents::test_stream_without_end_marker_ends_at_response_close`: a response that simply closes, with no marker and no finish reason, still ends the iteration and leaves every event's finish reason unset (FR4, row 7).
 - **T11** — `TestStreamEvents::test_events_arrive_incrementally_not_buffered`: the stub sends its chunks with a known delay between them; the consumer records the wall-clock time of each event as it iterates, and the gaps between the first event and the later ones reflect those delays — a buffering implementation fails this (FR3, row 1). The load-bearing test for TTFT and TPOT: without it, reading the whole response and then yielding is indistinguishable from a correct implementation.
 - **T12** — `TestStreamEvents::test_non_chunk_lines_are_skipped`: a keep-alive or malformed line among valid chunks does not abort the stream, and the surrounding content is delivered (FR2, row 20).
 
@@ -97,7 +97,7 @@ Test infrastructure: a stub streaming server, added as the helper `tests/streami
 - **T14** — `TestStreamFailures::test_rejected_stream_raises_with_status`: another status (say 500, with a JSON error body) raises the rejection error, and the status is readable on it (row 9).
 - **T15** — `TestStreamFailures::test_transport_failure_before_content`: an `Llm` pointed at a closed port raises the transport error (row 10).
 - **T16** — `TestStreamFailures::test_transport_failure_mid_stream_after_delivered_events`: the stub sends one content chunk and then closes the connection abruptly; the events already delivered were yielded, and the transport error follows (row 11).
-- **T17** — `TestStreamFailures::test_stream_with_no_content_is_not_an_error`: the end marker arrives with no content chunk at all — no exception, and the consumer sees zero content-bearing events (row 12).
+- **T17** — `TestStreamFailures::test_stream_with_no_content_is_not_an_error`: the end marker arrives with no content chunk at all — no exception, and the consumer receives no events at all (row 12).
 - **T18** — `TestStreamFailures::test_timeout_is_its_own_error_and_reaches_every_constructor`: parametrised over a stub that never answers and one that sends its headers and then goes silent, each raising the timeout type rather than merely the transport type; and the field reaches `Llm`, `LocalLlm` and `OpenAiApiLlmWithAuthorization` unchanged, with `None` as the default (FR9, row 13).
 - **T19** — `TestStreamFailures::test_failure_types_are_distinguishable`: one place asserting the four types are mutually distinguishable (authorization, rejection, transport, timeout), including that a plain transport failure is not the timeout type, so a consumer can branch on them (FR7).
 
