@@ -1,4 +1,4 @@
-from typing import TypedDict
+from typing import Optional, TypedDict
 
 
 class LlmMessage(TypedDict):
@@ -7,16 +7,23 @@ class LlmMessage(TypedDict):
 
 
 def make_up_message_history(
-    system_prompt: str,
+    system_prompt: Optional[str],
     user_prompt: str,
 ) -> list[LlmMessage]:
-    return [
-        {
-            "role": "system",
-            "content": system_prompt,
-        },
+    """The messages for one system/user pair, without a system message when absent."""
+    messages: list[LlmMessage] = []
+    if system_prompt is not None:
+        messages.append(
+            {
+                "role": "system",
+                "content": system_prompt,
+            }
+        )
+    messages.append(
         {
             "role": "user",
             "content": user_prompt,
-        },
-    ]
+        }
+    )
+
+    return messages

@@ -24,6 +24,14 @@ class TestMakeUpMessageHistory:
         assert result[0] == {"role": "system", "content": "You are helpful."}
         assert result[1] == {"role": "user", "content": "What is 2+2?"}
 
+    def test_omits_the_system_message_when_there_is_no_system_prompt(self) -> None:
+        result = make_up_message_history(
+            system_prompt=None,
+            user_prompt="What is 2+2?",
+        )
+
+        assert result == [{"role": "user", "content": "What is 2+2?"}]
+
 
 class TestRemovedFunctions:
     @pytest.mark.parametrize("name", REMOVED_REQUEST_FUNCTIONS)
